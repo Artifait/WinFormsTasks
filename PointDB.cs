@@ -1,107 +1,68 @@
 ﻿using System.Data;
-using Microsoft.Data.SqlClient;
+using System.Data.Common;
 
-public class PointDB
+namespace UniversalDBConnection
 {
-    SqlConnection conn;
-    SqlDataAdapter adapter;
-    DataSet ds;
-
-    public PointDB(string database, string server = @"(localdb)\MSSQLLocalDB")
+    public class PointDB
     {
-        string conStr = $@"Server={server};Database={database};Trusted_Connection=True;";
-        conn = new SqlConnection(conStr);
-        ds = new DataSet();
-    }
+        private DbProviderFactory _factory;
+        private DbConnection _connection;
+        private DbDataAdapter _adapter;
+        private DbCommandBuilder _commandBuilder;
+        private DataSet _dataSet;
 
-    public bool OpenDB()
-    {
-        if (IsWork()) return true;
-        try
+        public ConnectionState StateDB { get => _connection.State; }
+
+        public PointDB(string providerName, string connectionString)
         {
-            conn.Open();
-            if (conn.State == ConnectionState.Open)
-                return true;
-        }
-        catch (Exception) { }
-        return false;
-    }
+            _factory = DbProviderFactories.GetFactory(providerName);
 
-    public void CloseDB()
-    {
-        if (conn.State == ConnectionState.Open)
-            conn.Close();
-    }
-
-    public bool IsWork() => conn.State == ConnectionState.Open;
-
-    public void ExecuteNonQuery(SqlCommand cmd)
-    {
-        try
-        {
-            if (OpenDB())
+            _connection = _factory.CreateConnection();
+            if (_connection == null)
             {
-                cmd.Connection = conn;
-                adapter = new SqlDataAdapter(cmd);
-                adapter.TableMappings.Add("Table", "MappedTable"); 
-                adapter.Fill(ds);
-                SqlCommandBuilder builder = new(adapter);
-                adapter.Update(ds);
+                throw new InvalidOperationException("Не удалось создать подключение.");
+            }
+
+            _connection.ConnectionString = connectionString;
+        }
+
+        public void OpenConnection()
+        {
+            if (_connection.State != ConnectionState.Open)
+                _connection.Open();
+        }
+
+        public void CloseConnection()
+        {
+            if (_connection.State == ConnectionState.Open)
+                _connection.Close();
+        }
+
+        public DataTable ExecuteQuery(string query)
+        {
+            DataTable dataTable = new();
+            _adapter = _factory.CreateDataAdapter();
+
+            if (_adapter == null) return dataTable;
+
+            using DbCommand command = _connection.CreateCommand();
+            command.CommandText = query;
+
+            _adapter.SelectCommand = command;
+            _dataSet = new DataSet();
+            _adapter.Fill(_dataSet);
+            _commandBuilder = _factory.CreateCommandBuilder();
+            _commandBuilder.DataAdapter = _adapter;
+
+            return _dataSet.Tables[0]; // Возвращаем первую таблицу
+        }
+
+        public void UpdateData()
+        {
+            if (_dataSet != null && _adapter != null)
+            {
+                _adapter.Update(_dataSet.Tables[0]); // Обновляем изменения в БД
             }
         }
-        catch (Exception) { }
-        finally
-        {
-            CloseDB();
-        }
-    }
-
-    public DataSet ExecuteQuery(SqlCommand cmd)
-    {
-        try
-        {
-            if (OpenDB())
-            {
-                cmd.Connection = conn;
-                adapter = new SqlDataAdapter(cmd);
-                adapter.TableMappings.Add("Table", "MappedTable"); 
-                adapter.Fill(ds);
-            }
-        }
-        finally
-        {
-            CloseDB();
-        }
-
-        return ds;
-    }
-
-    public DataSet ExecuteQuery(string query)
-    {
-        try
-        {
-            if (OpenDB())
-            {
-                using SqlCommand cmd = new SqlCommand(query, conn);
-                adapter = new SqlDataAdapter(cmd);
-                adapter.TableMappings.Add("Table", "MappedTable"); 
-                adapter.Fill(ds);
-            }
-        }
-        finally
-        {
-            CloseDB();
-        }
-        return ds;
-    }
-
-    public void UpdateDB()
-    {
-        try
-        {
-            SqlCommandBuilder builder = new SqlCommandBuilder(adapter);
-            adapter.Update(ds);
-        }
-        catch (Exception) { }
     }
 }
